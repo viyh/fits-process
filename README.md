@@ -32,13 +32,13 @@ Basic Functionality
 * Parse header information
 * Use filename to create directory in target data output directory
 * Slice up the data into separate images
-* Save header informations to CVC log (add more output types)
-* Add data analysis
+* Save header informations to CVS log (todo: add more output types)
+* Todo: Add data analysis
 
 Dependencies
 ------------
 
-* PyFITS http://www.stsci.edu/institute/software_hardware/pyfits]
+* PyFITS [http://www.stsci.edu/institute/software_hardware/pyfits]
 
 References
 ----------
