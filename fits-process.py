@@ -65,20 +65,22 @@ def ingest_data(args,filename):
     data_cube, header_data_cube = pyfits.getdata(filename, 0, header=True)
     numslices = data_cube.shape[0]
 
-    mkdir_p( os.path.join( os.path.dirname(filename), args.out, os.path.splitext(os.path.split(filename)[1])[0] ) )
+    imfiledir = os.path.join( args.out, os.path.splitext(os.path.split(filename)[1])[0] )
 
-    import pylab
-    import mpl_toolkits.mplot3d.axes3d as p3
+    mkdir_p( imfiledir )
+
+    #import pylab
+    #import mpl_toolkits.mplot3d.axes3d as p3
 
     #for i in range(numslices):
     for i in range(10):
-        imfileout = os.path.join(os.path.dirname(filename), args.out, os.path.splitext(os.path.split(filename)[1])[0], os.path.splitext(os.path.split(filename)[1])[0] + '_' + ( "%05d" % i ) + '.fits' )
+        imfileout = os.path.join( imfiledir, os.path.splitext(os.path.split(filename)[1])[0] + '_' + ( "%05d" % i ) + '.fits' )
         hdu = pyfits.PrimaryHDU( data_cube[i] )
         hdu.writeto(imfileout)
-        pylab.plot(data_cube[i], height=32767)
-        pylab.imshow(data_cube[i], interpolation="nearest")
-        pylab.contour(data_cube[i])
-        pylab.show()
+        #pylab.plot(data_cube[i], height=32767)
+        #pylab.imshow(data_cube[i], interpolation="nearest")
+        #pylab.contour(data_cube[i])
+        #pylab.show()
 
     return True
 
