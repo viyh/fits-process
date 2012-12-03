@@ -1,7 +1,8 @@
 fits-process
 ============
 
-Process a set of fits data cubes into separate slices, and record the header data into a spreadsheet.
+Process a set of astronomical FITS multidimensional data cubes into separate 
+slices, and record the header data into a spreadsheet.
 
 Usage
 -----
