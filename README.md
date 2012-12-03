@@ -39,7 +39,7 @@ PyFITS
 
 References
 ----------
-joe@lowmagnitude.com
+joe-at-lowmagnitude.com
 
 Homepage: https://github.com/viyh/fits-process
 NumPy docs: http://docs.scipy.org/doc/numpy/reference/arrays.ndarray.html
