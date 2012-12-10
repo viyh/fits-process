@@ -2,28 +2,69 @@ fits-process
 ============
 
 Process a set of astronomical FITS multidimensional data cubes into separate 
-slices, and record the header data into a log file.
+slices, and record the header data into a log file. Aligns double star images
+and attempts to guess the position angle and separation.
+
+A sample FITS data cube can be downloaded here:
+
+http://www.lowmagnitude.com/data/001_BU533-100.fits.zip
+
+joe-at-lowmagnitude.com
 
 Usage
 -----
 
-    usage: fits-process.py [-h] -f FILES -l LOGFILE -o OUT [-s] [-D]
-
-    Slice fits cubes and record header info.
-
+    usage: fits-process.py [-h] -f FILES [-o OUT] -l LOGFILE [-O] [-n NORMALIZE]
+                           [-S SIGMA] [-t THRESHOLD] [-i] [-P PLATESCALE]
+                           [-T THETA] [-s] [-D]
+    
+    Slice fits cubes, align slices, and record header info.
+    
     optional arguments:
       -h, --help            show this help message and exit
       -f FILES, --files FILES
                             Search string for the fits files you want to ingest.
                             e.g. "data_dir/*.fits"
-     -l LOGFILE, --logfile LOGFILE
+      -o OUT, --out OUT     Directory for output files
+      -l LOGFILE, --logfile LOGFILE
                             Where to write the log file (CSV format)
-      -o OUT, --out OUT     Directory for output
+      -O, --overwrite       Overwrite existing output files
+      -n NORMALIZE, --normalize NORMALIZE
+                            Normalization range (2^n, where n is this value,
+                            default = 8)
+      -S SIGMA, --sigma SIGMA
+                            Sigma value for Laplace filter (default = 2.0)
+      -t THRESHOLD, --threshold THRESHOLD
+                            Threshold of usable data values, only data points
+                            above this will be considered (Multiplied by the
+                            standard deviation of the data per slice, default =
+                            4.0)
+      -i, --images          Display images
+      -P PLATESCALE, --platescale PLATESCALE
+                            Calibration plate scale value (arc-seconds per pixel)
+      -T THETA, --theta THETA
+                            Calibration theta value (degrees)
       -s, --slice           Slice fits into separate files
       -D, --debug           Debugging
-
+    
 Example:
-`python fits-process.py -s -f '/home/joe/data/*.fits' -l /home/joe/test.csv -o /home/joe/output/`
+
+To align images and calculate a relative theta and pixel distance, and then show the image plots:
+
+`python fits-process.py --logfile output.csv --file '001_BU533-100.fits' -n 8 -t 4 -S 2 -i`
+
+A sample FITS cube to play with is linked above.
+
+It is usually good to start with the threshold set fairly low (around 2) and the sigma set
+low as well (around 1). Turn these up as needed. If the image is not getting centered properly,
+turning up the threshold will help find the center of the reference image better. If the stars
+are not showing up well, then turning up the sigma value will help, but decrease the precision
+of the results. These two numbers are floating point, so they can be turned up slowly. I usually
+increment by one until I have a desired result, then fine tune as needed.
+
+If files are named in the format "ID_Target.fits" where "ID" is some arbitrary ID number and 
+"Target" is the name of the target star, the code will automatically add this to the CVS log 
+file and output of the graphs.
 
 Basic Functionality
 -------------------
@@ -33,19 +74,28 @@ Basic Functionality
 * Use filename to create directory in target data output directory
 * Slice up the data into separate images
 * Save header informations to CVS log (todo: add more output types)
-* Todo: Add data analysis
+* Alignment of slices and analysis
+
+To Do
+-----
+* Fix the rho/theta calibration stuff
+* Add a "calibration" mode that will calculate the plate scale and camera angle
+* Write out the calculated rho/theta value to the log
 
 Dependencies
 ------------
 
 * PyFITS [http://www.stsci.edu/institute/software_hardware/pyfits]
+* NumPy [http://numpy.scipy.org/]
+* SciPy [http://www.scipy.org/]
+* Matplotlib [http://matplotlib.org/]
 
 References
 ----------
-
-joe-at-lowmagnitude.com
 
 * Homepage [https://github.com/viyh/fits-process]
 * NumPy docs [http://docs.scipy.org/doc/numpy/reference/arrays.ndarray.html]
 * AstroPython [http://www.astropython.org/]
 * PyFITS docs [http://packages.python.org/pyfits/]
+* Matplotlib docs [http://matplotlib.org/contents.html]
+* SciPy docs [http://docs.scipy.org/doc/scipy/reference/ndimage.html]
