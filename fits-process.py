@@ -16,15 +16,21 @@ def parse_args():
     Parse the command line arguments.
     '''
     parser = argparse.ArgumentParser(description = 'Slice fits cubes, align slices, and record header info.' )
-    parser.add_argument('-f', '--files', required = True, help = 'Search string for the fits files you want to ingest.  e.g. "data_dir/*.fits"')
+    parser.add_argument('-f', '--files', required = True, help = 'Search string for the fits files you want to \
+                         ingest.  e.g. "data_dir/*.fits"')
     parser.add_argument('-o', '--out', required = False, help = 'Directory for output files')
     parser.add_argument('-l', '--logfile', required = True, help = 'Where to write the log file (CSV format)')
     parser.add_argument('-O', '--overwrite', action='store_true', help = 'Overwrite existing output files')
-    parser.add_argument('-n', '--normalize', required = False, type=int, default = 8, help = 'Normalization range (2^n, where n is this value, default = 8)')
-    parser.add_argument('-S', '--sigma', required = False, type=float, default = 2.0, help = 'Sigma value for Laplace filter (default = 2.0)')
-    parser.add_argument('-t', '--threshold', required = False, type=float, default = 4.0, help = 'Threshold of usable data values, only data points above this will be considered (Multiplied by the standard deviation of the data per slice, default = 4.0)')
+    parser.add_argument('-n', '--normalize', required = False, type=int, default = 8, help = 'Normalization \
+                         range (2^n, where n is this value, default = 8)')
+    parser.add_argument('-S', '--sigma', required = False, type=float, default = 2.0, help = 'Sigma value for \
+                         Laplace filter (default = 2.0)')
+    parser.add_argument('-t', '--threshold', required = False, type=float, default = 4.0, help = 'Threshold of \
+                         usable data values, only data points above this will be considered (Multiplied by the \
+                         standard deviation of the data per slice, default = 4.0)')
     parser.add_argument('-i', '--images', action='store_true', help = 'Display images')
-    parser.add_argument('-P', '--platescale', required = False, type=float, help = 'Calibration plate scale value (arc-seconds per pixel)')
+    parser.add_argument('-P', '--platescale', required = False, type=float, help = 'Calibration plate scale \
+                         value (arc-seconds per pixel)')
     parser.add_argument('-T', '--theta', required = False, type=float, help = 'Calibration theta value (degrees)')
     parser.add_argument('-s', '--slice', action='store_true', help = 'Slice fits into separate files')
     parser.add_argument('-D', '--debug', action='store_true', help = 'Debugging')
@@ -92,7 +98,8 @@ def split_cube(args, data_cube, filename):
     mkdir_p( imfiledir )
 
     for i in range(numslices):
-        imfileout = os.path.join( imfiledir, os.path.splitext(os.path.split(filename)[1])[0] + '_' + ( "%05d" % i ) + '.fits' )
+        imfileout = os.path.join( imfiledir, os.path.splitext(os.path.split(filename)[1])[0] + \
+            '_' + ( "%05d" % i ) + '.fits' )
         if args.overwrite and (os.path.exists(imfileout) or os.path.islink(imfileout)):
             os.remove(imfileout)
         hdu = pyfits.PrimaryHDU( data_cube[i] )
@@ -111,7 +118,8 @@ def align(args, data_cube, title):
     slice_first = data_cube[0]
     slice_first *= norm / numpy.amax(slice_first, axis=None, out=None)
 
-    # Set the threshold to the standard deviation of the data in the first slice multiplied by the supplied argument
+    # Set the threshold to the standard deviation of the data in the
+    # first slice multiplied by the supplied argument
     threshold = args.threshold * slice_first.std( dtype=numpy.float32 )
     if threshold > norm: threshold = norm
     print "threshold: ", threshold, "\nstddev of first slice: ", slice_first.std( dtype=numpy.float64 )
@@ -134,7 +142,8 @@ def align(args, data_cube, title):
         slice = data_cube[i]
 
         # Run a multidimensional Laplacian filter
-        slice = scipy.ndimage.filters.gaussian_laplace( data_cube[i], args.sigma, output=None, mode='reflect', cval=0.0 )
+        slice = scipy.ndimage.filters.gaussian_laplace( \
+                    data_cube[i], args.sigma, output=None, mode='reflect', cval=0.0 )
         threshold = args.threshold * slice.std( dtype=numpy.float32 )
         if threshold > norm: threshold = norm
 
@@ -142,7 +151,8 @@ def align(args, data_cube, title):
         labels, num = scipy.ndimage.measurements.label( slice >= threshold, numpy.ones((3,3)) )
         centers = scipy.ndimage.measurements.center_of_mass( slice, labels, range(1,num+1) )
 
-        # If a center of mass is found, set xb and yb values to it. If not, skip this image (try setting the threshold lower if this happens)
+        # If a center of mass is found, set xb and yb values to it.
+        # If not, skip this slice (try setting the threshold lower if this happens)
         if centers:
             xb = numpy.array(centers)[:,0]
             yb = numpy.array(centers)[:,1]
@@ -208,7 +218,8 @@ def plot_data(slice_first, stacked_image, title, norm, x_ref, y_ref, idx1, idx2)
     plt.subplot(2,3,2), plt.imshow(slice_first, cmap="gray", origin='lower')
     plt.title(title + " first slice grayscale")
 
-    # Plots a green square marker over guess for the primary star, red square marker over guess for the secondary star
+    # Plots a green square marker over guess for the primary star, 
+    # and a red square marker over guess for the secondary star
     plt.subplot(2,3,3), plt.imshow(stacked_image, norm=plt.Normalize(0,norm), origin='lower', vmin=0)
     plt.plot(idx1[1], idx1[0],'gs',markersize=7)
     plt.plot(idx2[1], idx2[0],'rs',markersize=7)
