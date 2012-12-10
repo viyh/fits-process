@@ -5,6 +5,13 @@ Process a set of astronomical FITS multidimensional data cubes into separate
 slices, and record the header data into a log file. Aligns double star images
 and attempts to guess the position angle and separation.
 
+An example of what this script can do:
+
+http://www.lowmagnitude.com/data/reduced_example.jpg
+
+The first two plots are a slice of the original data. The last four are different
+types of plots of the data after it has been reduced by this script.
+
 A sample FITS data cube can be downloaded here:
 
 http://www.lowmagnitude.com/data/001_BU533-100.fits.zip
