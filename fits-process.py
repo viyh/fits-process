@@ -115,27 +115,28 @@ def align(args, data_cube, title):
     norm = 2**int(args.normalize) - 1
 
     # Grab first slice from the cube
-    slice_first = data_cube[0]
-    slice_first *= norm / numpy.amax(slice_first, axis=None, out=None)
+    slice_ref = data_cube[0]
+    slice_ref *= norm / numpy.amax(slice_ref, axis=None, out=None)
 
     # Set the threshold to the standard deviation of the data in the
     # first slice multiplied by the supplied argument
-    threshold = args.threshold * slice_first.std( dtype=numpy.float32 )
-    if threshold > norm: threshold = norm
-    print "threshold: ", threshold, "\nstddev of first slice: ", slice_first.std( dtype=numpy.float64 )
+    threshold_ref = args.threshold * slice_ref.std( dtype=numpy.float32 )
+    if threshold_ref > norm: threshold_ref = norm
+    print "threshold: ", threshold_ref, "\nstddev of first slice: ", slice_ref.std( dtype=numpy.float32 )
 
     # Find useful data that exceeds the threshold value to determine the COM of the image
-    labels, num = scipy.ndimage.measurements.label( slice_first >= threshold, numpy.ones((3,3) ) )
-    centers = scipy.ndimage.measurements.center_of_mass( slice_first, labels, range(1,num+1) )
-    print centers, num
+    lbl_ref, num_ref = scipy.ndimage.measurements.label( slice_ref >= threshold_ref, numpy.ones((3,3)) )
+    com_ref = scipy.ndimage.measurements.center_of_mass( slice_ref, lbl_ref, range(1, num_ref + 1) )
+    print "Centers_ref:\n", com_ref
+    print "Num_ref: ", num_ref
 
     # This is the center of the reference image
-    x_ref = numpy.array(centers)[:,0]
-    y_ref = numpy.array(centers)[:,1]
+    x_ref = numpy.array(com_ref)[:,0]
+    y_ref = numpy.array(com_ref)[:,1]
     print "x =\n",x_ref,"\ny =\n",y_ref
 
     # copy data cube to throw processed slices into
-    new_data_cube = numpy.zeros_like(data_cube, dtype=None, order='K', subok=True)
+    stacked_data_cube = numpy.zeros_like(data_cube, dtype=None, order='K', subok=True)
 
     for i in range( data_cube.shape[0] ):
         # Grab the next slice to process
@@ -148,26 +149,27 @@ def align(args, data_cube, title):
         if threshold > norm: threshold = norm
 
         # Find useful data that exceeds the threshold value to determine the COM of the image
-        labels, num = scipy.ndimage.measurements.label( slice >= threshold, numpy.ones((3,3)) )
-        centers = scipy.ndimage.measurements.center_of_mass( slice, labels, range(1,num+1) )
+        lbl, num = scipy.ndimage.measurements.label( slice >= threshold, numpy.ones((3,3)) )
+        com = scipy.ndimage.measurements.center_of_mass( slice, lbl, range(1,num+1) )
 
-        # If a center of mass is found, set xb and yb values to it.
+        # If a center of mass is found, set x and y values to it.
         # If not, skip this slice (try setting the threshold lower if this happens)
-        if centers:
-            xb = numpy.array(centers)[:,0]
-            yb = numpy.array(centers)[:,1]
+        if com:
+            x = numpy.array(com)[:,0]
+            y = numpy.array(com)[:,1]
         else: continue
-        print "Image offset: ", i, "\t", round( x_ref[0]-xb[0],2), round(y_ref[0]-yb[0], 2 )
+        if args.debug: print "Image offset: ", i, "\t", round( x_ref[0]-x[0],2), round(y_ref[0]-y[0], 2 )
+        sys.stdout.write(".")
+        sys.stdout.flush()
 
         # Normalize slice data
         slice = slice * ( norm / numpy.amax(slice, axis=None, out=None) )
 
-        # align center of mass for slice to reference image
-        slice_processed = scipy.ndimage.interpolation.shift(slice,[x_ref[0]-xb[0],y_ref[0]-yb[0]])
-        new_data_cube[i] = slice_processed
+        # align center of mass for slice to reference image and add to stacked data cube
+        stacked_data_cube[i] = scipy.ndimage.interpolation.shift(slice,[x_ref[0]-x[0],y_ref[0]-y[0]])
 
     # This is the fully reduced image.
-    stacked_image = numpy.mean(new_data_cube, axis=0)
+    stacked_image = numpy.mean(stacked_data_cube, axis=0)
 
     # An attempt to determine primary and secondary stars. Kind of a hack, should be worked on (k-means?) 
     idx1 = numpy.unravel_index( stacked_image.argmax(), stacked_image.shape )
@@ -200,22 +202,22 @@ def align(args, data_cube, title):
         print "Adjusted position angle:\t%f" % pa
 
     if args.images:
-        plot_data(slice_first, stacked_image, title, norm, x_ref, y_ref, idx1, idx2)
+        plot_data(slice_ref, stacked_image, title, norm, x_ref, y_ref, idx1, idx2)
 
     return True
 
 # -----------------------------------------------------------------------------
 
-def plot_data(slice_first, stacked_image, title, norm, x_ref, y_ref, idx1, idx2):
+def plot_data(slice_ref, stacked_image, title, norm, x_ref, y_ref, idx1, idx2):
     '''
     Graph the data
     '''
     plt.rcParams.update({'font.size': 9})
 
-    plt.subplot(2,3,1), plt.imshow(slice_first, origin='lower')
+    plt.subplot(2,3,1), plt.imshow(slice_ref, origin='lower')
     plt.title(title + " first slice")
 
-    plt.subplot(2,3,2), plt.imshow(slice_first, cmap="gray", origin='lower')
+    plt.subplot(2,3,2), plt.imshow(slice_ref, cmap="gray", origin='lower')
     plt.title(title + " first slice grayscale")
 
     # Plots a green square marker over guess for the primary star, 
