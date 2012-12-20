@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument('-f', '--files', required = True, help = 'Search string for the fits files you want to \
                          ingest.  e.g. "data_dir/*.fits"')
     parser.add_argument('-o', '--out', required = False, help = 'Directory for output files')
-    parser.add_argument('-l', '--logfile', required = True, help = 'Where to write the log file (CSV format)')
+    parser.add_argument('-l', '--logfile', required = False, help = 'Where to write the log file (CSV format)')
     parser.add_argument('-O', '--overwrite', action='store_true', help = 'Overwrite existing output files')
     parser.add_argument('-n', '--normalize', required = False, type=int, default = 8, help = 'Normalization \
                          range (2^n, where n is this value, default = 8)')
@@ -32,7 +32,8 @@ def parse_args():
     parser.add_argument('-P', '--platescale', required = False, type=float, help = 'Calibration plate scale \
                          value (arc-seconds per pixel)')
     parser.add_argument('-T', '--theta', required = False, type=float, help = 'Calibration theta value (degrees)')
-    parser.add_argument('-s', '--slice', action='store_true', help = 'Slice fits into separate files')
+    parser.add_argument('-s', '--slice', action='store_true', help = 'Slice fits file into separate files')
+    parser.add_argument('-c', '--chop', required=False, type=int, help = 'Chop fits file into separate groups of this many slices each')
     parser.add_argument('-D', '--debug', action='store_true', help = 'Debugging')
     args = parser.parse_args()
     return args
@@ -57,7 +58,7 @@ def ingest_header(args, log, filename):
     Ingest the header information and add it to the log.
     '''
     if args.debug == True:
-        print "Found file [%f]" % filename
+        print "Found file [%s]" % filename
     header = get_header(filename)
 
     print filename
@@ -81,11 +82,54 @@ def ingest_data(args, filename):
     data_cube, header_data_cube = pyfits.getdata(filename, 0, header=True)
     numslices = data_cube.shape[0]
 
-    if args.out:
+    if args.out and not args.chop:
         split_cube(args,data_cube,filename)
 
-    align(args,data_cube,os.path.splitext(os.path.split(filename)[1])[0])
+    if args.chop:
+        # figure out the number of pieces to chop the fits file into
+        avg_r = 0.0
+        avg_t = 0.0
+        pieces = numslices / args.chop
+        if pieces < 1: pieces = 1
+        for p in range(pieces):
+            new_data_cube = numpy.split(data_cube, pieces)[p]
+            start = args.chop * p
+            end = args.chop * ( p + 1 ) - 1
+            if args.out:
+                chop_cube(args,new_data_cube,filename,start,end)
+            (r, t) = align(args,new_data_cube,os.path.splitext(os.path.split(filename)[1])[0] + ' (slice ' + str(start) + ' to ' + str(end) + ')' )
+            if p == 0:
+                avg_r = r
+                avg_t = t
+            else:
+                avg_r = (avg_r + r) / 2
+                avg_t = (avg_t + t) / 2
+        print "\nAverage rho:\t%.4f" % avg_r
+        print "Average theta:\t%.4f\n" % avg_t
+        if args.platescale:
+            print "\nAdjusted average rho:\t%.4f" % (avg_r * args.platescale)
+        if args.theta:
+            print "Adjusted average theta:\t%.4f\n" % ( 270 - (args.theta + avg_t) )
 
+    else:
+        align(args,data_cube,os.path.splitext(os.path.split(filename)[1])[0])
+
+    return True
+
+# -----------------------------------------------------------------------------
+
+def chop_cube(args,data_cube,filename,start,end):
+    '''
+    Split up the slices of a FITS cube into sets
+    '''
+    imfiledir = os.path.join( args.out, os.path.splitext(os.path.split(filename)[1])[0] )
+    mkdir_p( imfiledir )
+
+    imfileout = os.path.join( imfiledir, os.path.splitext(os.path.split(filename)[1])[0] + '_' + str(start) + '-' + str(end) + '.fits' )
+    if args.overwrite and (os.path.exists(imfileout) or os.path.islink(imfileout)):
+        os.remove(imfileout)
+    hdu = pyfits.PrimaryHDU( data_cube )
+    hdu.writeto(imfileout)
     return True
 
 # -----------------------------------------------------------------------------
@@ -116,7 +160,9 @@ def align(args, data_cube, title):
 
     # Grab first slice from the cube
     slice_ref = data_cube[0]
-    slice_ref *= norm / numpy.amax(slice_ref, axis=None, out=None)
+
+    #for i in range(50):
+    #slice_ref *= norm / numpy.amax(slice_ref, axis=None, out=None)
 
     # Set the threshold to the standard deviation of the data in the
     # first slice multiplied by the supplied argument
@@ -127,13 +173,15 @@ def align(args, data_cube, title):
     # Find useful data that exceeds the threshold value to determine the COM of the image
     lbl_ref, num_ref = scipy.ndimage.measurements.label( slice_ref >= threshold_ref, numpy.ones((3,3)) )
     com_ref = scipy.ndimage.measurements.center_of_mass( slice_ref, lbl_ref, range(1, num_ref + 1) )
-    print "Centers_ref:\n", com_ref
-    print "Num_ref: ", num_ref
+    if args.debug:
+        print "Centers_ref:\n", com_ref
+        print "Num_ref: ", num_ref
 
     # This is the center of the reference image
     x_ref = numpy.array(com_ref)[:,0]
     y_ref = numpy.array(com_ref)[:,1]
-    print "x =\n",x_ref,"\ny =\n",y_ref
+    if args.debug:
+        print "x =\n",x_ref[0],"\ny =\n",y_ref[0]
 
     # copy data cube to throw processed slices into
     stacked_data_cube = numpy.zeros_like(data_cube, dtype=None, order='K', subok=True)
@@ -163,7 +211,7 @@ def align(args, data_cube, title):
         sys.stdout.flush()
 
         # Normalize slice data
-        slice = slice * ( norm / numpy.amax(slice, axis=None, out=None) )
+        #slice = slice * ( norm / numpy.amax(slice, axis=None, out=None) )
 
         # align center of mass for slice to reference image and add to stacked data cube
         stacked_data_cube[i] = scipy.ndimage.interpolation.shift(slice,[x_ref[0]-x[0],y_ref[0]-y[0]])
@@ -182,6 +230,8 @@ def align(args, data_cube, title):
     idx2 = numpy.unravel_index( stacked_image_tmp.argmax(), stacked_image_tmp.shape )
     print "Index of secondary star:\t", idx2
 
+    #print "Delta magnitude:\t\t%.5f" % (2.5 * log10( numpy.amax(stacked_image) / numpy.amax(stacked_image_tmp) ) )
+
     # Figure out the relative pixel distance and theta
     x = idx2[1] - idx1[1]
     y = idx2[0] - idx1[0]
@@ -196,7 +246,8 @@ def align(args, data_cube, title):
         print "\nAdjusted separation:\t\t%f" % sep
     if args.theta:
         # Need to fix this!
-        pa = (args.theta + 90 + theta)
+        pa = 270 - (args.theta + theta)
+#        pa = args.theta - (450 - theta)
         if pa < 0:
             pa += 360.0
         print "Adjusted position angle:\t%f" % pa
@@ -204,7 +255,7 @@ def align(args, data_cube, title):
     if args.images:
         plot_data(slice_ref, stacked_image, title, norm, x_ref, y_ref, idx1, idx2)
 
-    return True
+    return r, theta
 
 # -----------------------------------------------------------------------------
 
@@ -227,7 +278,7 @@ def plot_data(slice_ref, stacked_image, title, norm, x_ref, y_ref, idx1, idx2):
     plt.plot(idx2[1], idx2[0],'rs',markersize=7)
     plt.plot(x_ref,y_ref,'ro',alpha=0.2, markersize=3)
     plt.title(title + " normalized over 0-" + str( norm ) )
-    plt.axis([0.0, 128.0, 0.0, 128.0])
+    plt.axis([0.0, stacked_image.shape[1], 0.0, stacked_image.shape[0]])
 
     plt.subplot(2,3,4), plt.imshow(stacked_image, cmap="gray", norm=plt.Normalize(0,norm), origin='lower')
     plt.set_cmap('spectral')
@@ -295,7 +346,8 @@ def main(args):
         ingest_header(args,log,filename)
         ingest_data(args,filename)
 
-    write_log(args, log)
+    if args.logfile:
+        write_log(args, log)
 
 # -----------------------------------------------------------------------------
 

@@ -85,9 +85,12 @@ Basic Functionality
 
 To Do
 -----
+
 * Fix the rho/theta calibration stuff
 * Add a "calibration" mode that will calculate the plate scale and camera angle
 * Write out the calculated rho/theta value to the log
+* Make bsize a CLI option
+* Clean up function names
 
 Dependencies
 ------------
