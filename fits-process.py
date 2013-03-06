@@ -6,7 +6,7 @@ import pyfits, numpy, scipy, scipy.ndimage
 import matplotlib.pyplot as plt
 from math import *
 
-print "fits-process v0.0.2\n"
+print "fits-process v0.0.3\n"
 print "Using pyfits version [%s]\n" % pkg_resources.get_distribution('pyfits').version
 
 # -----------------------------------------------------------------------------
@@ -31,9 +31,12 @@ def parse_args():
     parser.add_argument('-i', '--images', action='store_true', help = 'Display images')
     parser.add_argument('-P', '--platescale', required = False, type=float, help = 'Calibration plate scale \
                          value (arc-seconds per pixel)')
-    parser.add_argument('-T', '--theta', required = False, type=float, help = 'Calibration theta value (degrees)')
+    parser.add_argument('-C', '--camangle', required = False, type=float, help = 'Calibration camera angle value (degrees)')
     parser.add_argument('-s', '--slice', action='store_true', help = 'Slice fits file into separate files')
     parser.add_argument('-c', '--chop', required=False, type=int, help = 'Chop fits file into separate groups of this many slices each')
+    # dark subtraction not fully implemented yet
+    parser.add_argument('-d', '--dark', required=False, help = 'Dark calibration file to subtract from data')
+    parser.add_argument('-b', '--bsize', required=False, default = 10, type=int, help = 'Box size')
     parser.add_argument('-D', '--debug', action='store_true', help = 'Debugging')
     args = parser.parse_args()
     return args
@@ -75,15 +78,23 @@ def ingest_header(args, log, filename):
 
 # -----------------------------------------------------------------------------
 
-def ingest_data(args, filename):
+def ingest_data(args, log, filename):
     '''
     Ingest the data from the FITS file
     '''
-    data_cube, header_data_cube = pyfits.getdata(filename, 0, header=True)
+    data_cube, header = pyfits.getdata(filename, 0, header=True)
     numslices = data_cube.shape[0]
+
+    dark = numpy.zeros_like(data_cube, dtype=None, order='K', subok=True)
+    dark = dark[0]
 
     if args.out and not args.chop:
         split_cube(args,data_cube,filename)
+
+    if args.dark:
+        dark_cube, dark_exp = ingest_dark(args)
+        dark_cube *= (header['EXPOSURE'] / dark_exp)
+        dark = numpy.mean(dark_cube, axis=0)
 
     if args.chop:
         # figure out the number of pieces to chop the fits file into
@@ -97,22 +108,33 @@ def ingest_data(args, filename):
             end = args.chop * ( p + 1 ) - 1
             if args.out:
                 chop_cube(args,new_data_cube,filename,start,end)
-            (r, t) = align(args,new_data_cube,os.path.splitext(os.path.split(filename)[1])[0] + ' (slice ' + str(start) + ' to ' + str(end) + ')' )
+            (r, t, a, b) = align(args,new_data_cube,dark,os.path.splitext(os.path.split(filename)[1])[0] + ' (slice ' + str(start) + ' to ' + str(end) + ')' )
             if p == 0:
                 avg_r = r
                 avg_t = t
             else:
                 avg_r = (avg_r + r) / 2
                 avg_t = (avg_t + t) / 2
+
+            log[filename]['raw_rho'] = str(avg_r)
+            log[filename]['raw_theta'] = str(avg_t)
+            log[filename]['adj_rho'] = str(avg_r * args.platescale)
+            log[filename]['adj_theta'] = str( 270 - (args.camangle + avg_t) )
+
         print "\nAverage rho:\t%.4f" % avg_r
         print "Average theta:\t%.4f\n" % avg_t
         if args.platescale:
             print "\nAdjusted average rho:\t%.4f" % (avg_r * args.platescale)
-        if args.theta:
-            print "Adjusted average theta:\t%.4f\n" % ( 270 - (args.theta + avg_t) )
+        if args.camangle:
+            print "Adjusted average theta:\t%.4f\n" % ( 270 - (args.camangle + avg_t) )
 
     else:
-        align(args,data_cube,os.path.splitext(os.path.split(filename)[1])[0])
+        (raw_rho, raw_theta, adj_rho, adj_theta) = align(args,data_cube,dark,os.path.splitext(os.path.split(filename)[1])[0])
+        log[filename]['rawrho'] = "%.4f" % raw_rho
+        log[filename]['rawtheta'] = "%.4f" % raw_theta
+        log[filename]['adjrho'] = "%.4f" % adj_rho
+        log[filename]['adjtheta'] = "%.4f" % adj_theta
+
 
     return True
 
@@ -153,47 +175,73 @@ def split_cube(args, data_cube, filename):
 
 # -----------------------------------------------------------------------------
 
-def align(args, data_cube, title):
+def ingest_dark(args):
+    dark_cube, dark_header = pyfits.getdata(args.dark, 0, header=True)
+    dark_exp = dark_header['EXPOSURE']
+    return dark_cube, dark_exp
 
+# -----------------------------------------------------------------------------
+
+def align(args, data_cube, dark, title):
     # Set the normalization range
     norm = 2**int(args.normalize) - 1
 
     # Grab first slice from the cube
-    slice_ref = data_cube[0]
+    slice_ref = data_cube[0] - dark
 
-    #for i in range(50):
-    #slice_ref *= norm / numpy.amax(slice_ref, axis=None, out=None)
+    mult = 0
 
-    # Set the threshold to the standard deviation of the data in the
-    # first slice multiplied by the supplied argument
-    threshold_ref = args.threshold * slice_ref.std( dtype=numpy.float32 )
-    if threshold_ref > norm: threshold_ref = norm
-    print "threshold: ", threshold_ref, "\nstddev of first slice: ", slice_ref.std( dtype=numpy.float32 )
+    # attempt to automatically figure out the proper threshold
+    for i in range(0, 50):
+        #slice_ref *= norm / numpy.amax(slice_ref, axis=None, out=None)
+        mult = .2 * i
 
-    # Find useful data that exceeds the threshold value to determine the COM of the image
-    lbl_ref, num_ref = scipy.ndimage.measurements.label( slice_ref >= threshold_ref, numpy.ones((3,3)) )
-    com_ref = scipy.ndimage.measurements.center_of_mass( slice_ref, lbl_ref, range(1, num_ref + 1) )
-    if args.debug:
-        print "Centers_ref:\n", com_ref
-        print "Num_ref: ", num_ref
+        # Set the threshold to the standard deviation of the data in the
+        # first slice multiplied by the supplied argument
+        threshold_ref = slice_ref.std( dtype=numpy.float32 ) * (args.threshold + mult)
+        if threshold_ref > norm: threshold_ref = norm
+        if args.debug:
+            print "threshold: ", threshold_ref, "\nstddev of first slice: ", slice_ref.std( dtype=numpy.float32 )
 
-    # This is the center of the reference image
-    x_ref = numpy.array(com_ref)[:,0]
-    y_ref = numpy.array(com_ref)[:,1]
-    if args.debug:
-        print "x =\n",x_ref[0],"\ny =\n",y_ref[0]
+        # Find useful data that exceeds the threshold value to determine the COM of the image
+        lbl_ref, num_ref = scipy.ndimage.measurements.label( slice_ref >= threshold_ref, numpy.ones((3,3)) )
+        com_ref = scipy.ndimage.measurements.center_of_mass( slice_ref, lbl_ref, range(1, num_ref + 1) )
+        if args.debug:
+            #print "Centers_ref:\n", com_ref
+            print "Num_ref: ", num_ref
+
+        # This is the center of the reference image
+        x_ref_tmp = numpy.array(com_ref)[:,0]
+        y_ref_tmp = numpy.array(com_ref)[:,1]
+        if args.debug:
+            print "x =\n",x_ref_tmp[0],"\ny =\n",y_ref_tmp[0]
+
+        # test to see if the centers of mass are anywhere near the center of the image
+        if x_ref_tmp[0] < (slice_ref.shape[1] / 8) or x_ref_tmp[0] > slice_ref.shape[1] - (slice_ref.shape[1] / 8):
+            continue
+        elif y_ref_tmp[0] < (slice_ref.shape[0] / 8) or y_ref_tmp[0] > slice_ref.shape[0] - (slice_ref.shape[0] / 8):
+            continue
+        else:
+            # we've found a reasonable threshold, so stop
+            break
+
+    x_ref = slice_ref.shape[1] / 2
+    y_ref = slice_ref.shape[0] / 2
 
     # copy data cube to throw processed slices into
     stacked_data_cube = numpy.zeros_like(data_cube, dtype=None, order='K', subok=True)
 
     for i in range( data_cube.shape[0] ):
         # Grab the next slice to process
-        slice = data_cube[i]
+        slice = data_cube[i] - dark
 
         # Run a multidimensional Laplacian filter
         slice = scipy.ndimage.filters.gaussian_laplace( \
                     data_cube[i], args.sigma, output=None, mode='reflect', cval=0.0 )
-        threshold = args.threshold * slice.std( dtype=numpy.float32 )
+
+        # Set the threshold to the standard deviation of the data in the
+        # first slice multiplied by the supplied threshold argument
+        threshold = slice.std( dtype=numpy.float32 ) * (args.threshold + mult)
         if threshold > norm: threshold = norm
 
         # Find useful data that exceeds the threshold value to determine the COM of the image
@@ -206,7 +254,7 @@ def align(args, data_cube, title):
             x = numpy.array(com)[:,0]
             y = numpy.array(com)[:,1]
         else: continue
-        if args.debug: print "Image offset: ", i, "\t", round( x_ref[0]-x[0],2), round(y_ref[0]-y[0], 2 )
+        if args.debug: print "Image offset: ", i, "\t", round( x_ref-x[0],2), round(y_ref-y[0], 2 )
         sys.stdout.write(".")
         sys.stdout.flush()
 
@@ -214,7 +262,7 @@ def align(args, data_cube, title):
         #slice = slice * ( norm / numpy.amax(slice, axis=None, out=None) )
 
         # align center of mass for slice to reference image and add to stacked data cube
-        stacked_data_cube[i] = scipy.ndimage.interpolation.shift(slice,[x_ref[0]-x[0],y_ref[0]-y[0]])
+        stacked_data_cube[i] = scipy.ndimage.interpolation.shift(slice,[x_ref-x[0],y_ref-y[0]])
 
     # This is the fully reduced image.
     stacked_image = numpy.mean(stacked_data_cube, axis=0)
@@ -223,39 +271,40 @@ def align(args, data_cube, title):
     idx1 = numpy.unravel_index( stacked_image.argmax(), stacked_image.shape )
     print "\nIndex of primary star:\t\t", idx1
     stacked_image_tmp = stacked_image.copy()
-    bsize = 10
+    bsize = args.bsize
     for i in range(bsize):
         for j in range(bsize):
             stacked_image_tmp[ (idx1[0]-(bsize/2))+i, (idx1[1]-(bsize/2))+j ] = 0
     idx2 = numpy.unravel_index( stacked_image_tmp.argmax(), stacked_image_tmp.shape )
     print "Index of secondary star:\t", idx2
 
-    #print "Delta magnitude:\t\t%.5f" % (2.5 * log10( numpy.amax(stacked_image) / numpy.amax(stacked_image_tmp) ) )
+    print "Delta magnitude:\t\t%.5f" % (2.5 * log10( numpy.amax(stacked_image) / numpy.amax(stacked_image_tmp) ) )
 
     # Figure out the relative pixel distance and theta
     x = idx2[1] - idx1[1]
     y = idx2[0] - idx1[0]
-    theta = degrees( atan2( y, x ) ) % 360
-    r = sqrt( x**2 + y**2 )
-    print "\ntheta:\t%f degrees" % theta
-    print "r:\t%f pixels" % r
+    raw_theta = degrees( atan2( y, x ) ) % 360
+    raw_rho = sqrt( x**2 + y**2 )
+    print "\ntheta:\t%f degrees" % raw_theta
+    print "r:\t%f pixels" % raw_rho
 
     # If calibration offsets are given, output an adjusted rho/theta value
+    adj_rho = 0.0
+    adj_theta = 0.0
     if args.platescale:
-        sep = args.platescale * r
-        print "\nAdjusted separation:\t\t%f" % sep
-    if args.theta:
+        adj_rho = args.platescale * raw_rho
+        print "\nAdjusted separation:\t\t%f" % adj_rho
+    if args.camangle:
         # Need to fix this!
-        pa = 270 - (args.theta + theta)
-#        pa = args.theta - (450 - theta)
-        if pa < 0:
-            pa += 360.0
-        print "Adjusted position angle:\t%f" % pa
+        adj_theta = 270 - (args.camangle + raw_theta)
+        if adj_theta < 0:
+            adj_theta += 360.0
+        print "Adjusted position angle:\t%f" % adj_theta
 
     if args.images:
         plot_data(slice_ref, stacked_image, title, norm, x_ref, y_ref, idx1, idx2)
 
-    return r, theta
+    return raw_rho, raw_theta, adj_rho, adj_theta
 
 # -----------------------------------------------------------------------------
 
@@ -337,14 +386,15 @@ def main(args):
     The main controller.
     '''
     log = {}
-    file_list = get_file_list(args.files)
+    file_list = get_file_list( args.files )
+    file_list.sort()
 
     if not args.out:
         print "No output directory specified. Running in read-only mode."
 
     for filename in file_list:
         ingest_header(args,log,filename)
-        ingest_data(args,filename)
+        ingest_data(args,log,filename)
 
     if args.logfile:
         write_log(args, log)

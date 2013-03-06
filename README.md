@@ -21,12 +21,12 @@ joe-at-lowmagnitude.com
 Usage
 -----
 
-    usage: fits-process.py [-h] -f FILES [-o OUT] -l LOGFILE [-O] [-n NORMALIZE]
-                           [-S SIGMA] [-t THRESHOLD] [-i] [-P PLATESCALE]
-                           [-T THETA] [-s] [-D]
-    
+usage: fits-process.py [-h] -f FILES [-o OUT] [-l LOGFILE] [-O] [-n NORMALIZE]
+                       [-S SIGMA] [-t THRESHOLD] [-i] [-P PLATESCALE]
+                       [-T THETA] [-s] [-c CHOP] [-b BSIZE] [-D]
+
     Slice fits cubes, align slices, and record header info.
-    
+
     optional arguments:
       -h, --help            show this help message and exit
       -f FILES, --files FILES
@@ -49,18 +49,23 @@ Usage
       -i, --images          Display images
       -P PLATESCALE, --platescale PLATESCALE
                             Calibration plate scale value (arc-seconds per pixel)
-      -T THETA, --theta THETA
-                            Calibration theta value (degrees)
-      -s, --slice           Slice fits into separate files
+      -C CAMANGLE, --camangle CAMANGLE
+                            Calibration camera angle value (degrees)
+      -s, --slice           Slice fits file into separate files
+      -c CHOP, --chop CHOP  Chop fits file into separate groups of this many
+                            slices each
+      -b BSIZE, --bsize BSIZE
+                            Box size
       -D, --debug           Debugging
     
 Example:
 
 To align images and calculate a relative theta and pixel distance, and then show the image plots:
 
-`python fits-process.py --logfile output.csv --file '001_BU533-100.fits' -n 8 -t 4 -S 2 -i`
+`python fits-process.py --logfile output.csv --file '001_BU533-100.fits' -t 4 -S 2 -C 0.0538 -T -22.46 -i`
 
-A sample FITS cube to play with is linked above.
+A sample FITS cube to play with is linked above. The camera angle is -22.46 degrees and the
+platescale was 0.0538 arcseconds per pixel.
 
 It is usually good to start with the threshold set fairly low (around 2) and the sigma set
 low as well (around 1). Turn these up as needed. If the image is not getting centered properly,
